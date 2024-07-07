@@ -1,0 +1,146 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "CF Project"
+Resources:
+  
+  # VPC
+  MyVPC:
+    Type: "AWS::EC2::VPC"
+    Properties: 
+      CidrBlock: "10.0.0.0/16"
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: MyVPC
+    
+  # Subnet A
+  SubnetA:
+    Type: "AWS::EC2::Subnet"
+    Properties: 
+      VpcId: !Ref MyVPC
+      CidrBlock: "10.0.1.0/24"
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags: 
+        - Key: Name 
+          Value: SubnetA
+    
+  # Subnet B
+  SubnetB:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: "10.0.2.0/24"
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags: 
+        - Key: Name
+          Value: SubnetB
+
+  # Internet Gateway
+  InternetGateway:
+    Type: "AWS::EC2::InternetGateway"
+    Properties: 
+      Tags:
+        - Key: Name
+          Value: VPC-IGW
+    
+  # Internet Gateway Attachment
+  AttachGateway:
+    Type: "AWS::EC2::VPCGatewayAttachment"
+    Properties: 
+      VpcId: !Ref MyVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Route Table
+  MyRouteTable:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref MyVPC
+    
+  # Route
+  MyRoute:
+    Type: "AWS::EC2::Route"
+    Properties:
+      RouteTableId: !Ref MyRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  # Subnet Route Table Association for Subnet A
+  MySubnetRouteTableAssociation1:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref SubnetA
+      RouteTableId: !Ref MyRouteTable
+
+  # Subnet Route Table Association for Subnet B
+  MySubnetRouteTableAssociation2:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref SubnetB
+      RouteTableId: !Ref MyRouteTable
+        
+  # Security Group
+  MySecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: Enable SSH and HTTP access
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
+
+  # RDS Subnet Group
+  MyDBSubnetGroup:     
+    Type: "AWS::RDS::DBSubnetGroup"
+    Properties:
+      DBSubnetGroupDescription: My DB subnet group
+      SubnetIds:
+        - !Ref SubnetA
+        - !Ref SubnetB
+    
+  # DB Instance
+  MyDBInstance:
+    Type: "AWS::RDS::DBInstance"
+    Properties:
+      DBInstanceClass: db.t3.micro
+      AllocatedStorage: 20
+      DBName: mydatabase
+      Engine: MySQL
+      EngineVersion: 8.0.35
+      MasterUsername: admin
+      MasterUserPassword: admin123
+      VPCSecurityGroups:
+        - !Ref MySecurityGroup
+      DBSubnetGroupName: !Ref MyDBSubnetGroup
+      PubliclyAccessible: true
+      
+  # EC2 Instance
+  MyEC2Instance:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      InstanceType: t2.micro
+      SecurityGroupIds:
+        - !Ref MySecurityGroup
+      SubnetId: !Ref SubnetA
+      ImageId: ami-enter here
+      KeyName: key-pair # Replace with your key pair name
+      UserData: 
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y httpd php php-mysqli
+          systemctl start httpd
+          systemctl enable httpd
+          mkdir -p /var/www/html
+          echo "<?php phpinfo(); ?>" > /var/www/html/index.php
